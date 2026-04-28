@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -13,60 +12,206 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2 } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Building2,
+  RefreshCw,
+} from "lucide-react";
 import {
   addClient as addClientDb,
   deleteClient as deleteClientDb,
   updateClient as updateClientDb,
 } from "@/lib/clients";
 
-type ClientStatus = "not_submitted" | "pending" | "submitted";
+type Bureau = "Kinshasa" | "Lubumbashi";
+type LOS = "Audit" | "BSO" | "TAX";
 
 type UiClient = {
   id: number;
-  name: string;
-  owner: string;
-  status: ClientStatus;
-  notes: string;
+  nomClient: string;
+  bureau: Bureau;
+  los: LOS;
+  personInCharge: string;
+
+  paiementIbp: boolean;
+  remplissage: boolean;
+  attestationEc: boolean;
+  depotDgi: boolean;
+
+  paiementIbpApplicable: boolean;
+  remplissageApplicable: boolean;
+  attestationEcApplicable: boolean;
+  depotDgiApplicable: boolean;
 };
 
 function mapDbClientToUi(client: any): UiClient {
   return {
     id: client.id,
-    name: client.nom_client,
-    owner: client.pole ?? "",
-    status: client.statut,
-    notes: client.notes ?? "",
+    nomClient: client.nom_client,
+    bureau: client.bureau ?? "Kinshasa",
+    los: client.los ?? "Audit",
+    personInCharge: client.person_in_charge ?? "",
+
+    paiementIbp: Boolean(client.paiement_ibp),
+    remplissage: Boolean(client.remplissage),
+    attestationEc: Boolean(client.attestation_ec),
+    depotDgi: Boolean(client.depot_dgi),
+
+    paiementIbpApplicable: client.paiement_ibp_applicable ?? true,
+    remplissageApplicable: client.remplissage_applicable ?? true,
+    attestationEcApplicable: client.attestation_ec_applicable ?? true,
+    depotDgiApplicable: client.depot_dgi_applicable ?? true,
   };
 }
+
+function BooleanSelect({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Select
+      value={value ? "true" : "false"}
+      onValueChange={(v) => onChange(v === "true")}
+      disabled={disabled}
+    >
+      <SelectTrigger
+        className={
+          disabled
+            ? "border-slate-500/30 bg-slate-500/10 text-slate-300"
+            : value
+            ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
+            : "border-red-400/30 bg-red-500/10 text-red-100"
+        }
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="true">Oui</SelectItem>
+        <SelectItem value="false">Non</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ApplicabilitySelect({
+  value,
+  onChange,
+}: {
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <Select value={value ? "true" : "false"} onValueChange={(v) => onChange(v === "true")}>
+      <SelectTrigger
+        className={
+          value
+            ? "border-sky-400/30 bg-sky-500/10 text-sky-100"
+            : "border-slate-400/30 bg-slate-500/10 text-slate-200"
+        }
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="true">Applicable</SelectItem>
+        <SelectItem value="false">N/A</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function getProgress(client: UiClient) {
+  const steps = [
+    { applicable: client.paiementIbpApplicable, value: client.paiementIbp },
+    { applicable: client.remplissageApplicable, value: client.remplissage },
+    { applicable: client.attestationEcApplicable, value: client.attestationEc },
+    { applicable: client.depotDgiApplicable, value: client.depotDgi },
+  ];
+
+  const applicableSteps = steps.filter((step) => step.applicable);
+  const completed = applicableSteps.filter((step) => step.value).length;
+  const total = applicableSteps.length;
+
+  return {
+    completed,
+    total,
+    percentage: total === 0 ? 100 : Math.round((completed / total) * 100),
+  };
+}
+
+function KpiCard({
+  title,
+  value,
+  subtitle,
+}: {
+  title: string;
+  value: number | string;
+  subtitle: string;
+}) {
+  return (
+    <Card className="border-white/10 bg-white/5">
+      <CardContent className="p-5">
+        <div className="text-xs uppercase tracking-[0.22em] text-slate-400">
+          {title}
+        </div>
+        <div className="mt-2 text-3xl font-black text-white">{value}</div>
+        <div className="mt-1 text-sm text-slate-400">{subtitle}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const emptyClient: UiClient = {
+  id: 0,
+  nomClient: "",
+  bureau: "Kinshasa",
+  los: "Audit",
+  personInCharge: "",
+
+  paiementIbp: false,
+  remplissage: false,
+  attestationEc: false,
+  depotDgi: false,
+
+  paiementIbpApplicable: true,
+  remplissageApplicable: true,
+  attestationEcApplicable: true,
+  depotDgiApplicable: true,
+};
 
 export default function AdminPage() {
   const [clients, setClients] = useState<UiClient[]>([]);
   const [saving, setSaving] = useState(false);
-  const [newClient, setNewClient] = useState<UiClient>({
-    id: 0,
-    name: "",
-    owner: "",
-    status: "not_submitted",
-    notes: "",
-  });
+  const [loading, setLoading] = useState(true);
+  const [newClient, setNewClient] = useState<UiClient>(emptyClient);
 
-  useEffect(() => {
-    async function refreshClients() {
-      const { data, error } = await supabase
-        .from("clients_depot")
-        .select("*")
-        .order("updated_at", { ascending: false });
+  const refreshClients = async () => {
+    setLoading(true);
 
-      if (!error) {
-        setClients((data ?? []).map(mapDbClientToUi));
-      }
+    const { data, error } = await supabase
+      .from("clients_depot")
+      .select("*")
+      .order("updated_at", { ascending: false });
+
+    if (!error) {
+      setClients((data ?? []).map(mapDbClientToUi));
+    } else {
+      console.error("Erreur chargement clients :", error);
     }
 
+    setLoading(false);
+  };
+
+  useEffect(() => {
     refreshClients();
 
     const channel = supabase
-      .channel("admin-realtime-clients")
+      .channel("admin-realtime-clients-monitoring")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "clients_depot" },
@@ -79,101 +224,289 @@ export default function AdminPage() {
     };
   }, []);
 
-  const updateClientLocal = async (id: number, patch: Partial<UiClient>) => {
-    const current = clients.find((c) => c.id === id);
-    if (!current) return;
+  const stats = useMemo(() => {
+    const total = clients.length;
 
-    const payload = {
-      nom_client: patch.name ?? current.name,
-      pole: patch.owner ?? current.owner,
-      statut: (patch.status ?? current.status) as ClientStatus,
-      notes: patch.notes ?? current.notes,
+    const totalChecks = clients.reduce((sum, client) => {
+      return (
+        sum +
+        Number(client.paiementIbpApplicable) +
+        Number(client.remplissageApplicable) +
+        Number(client.attestationEcApplicable) +
+        Number(client.depotDgiApplicable)
+      );
+    }, 0);
+
+    const completedChecks = clients.reduce((sum, client) => {
+      return (
+        sum +
+        Number(client.paiementIbpApplicable && client.paiementIbp) +
+        Number(client.remplissageApplicable && client.remplissage) +
+        Number(client.attestationEcApplicable && client.attestationEc) +
+        Number(client.depotDgiApplicable && client.depotDgi)
+      );
+    }, 0);
+
+    const progress = totalChecks === 0 ? 100 : Math.round((completedChecks / totalChecks) * 100);
+
+    const completedClients = clients.filter((client) => {
+      const p = getProgress(client);
+      return p.total > 0 && p.completed === p.total;
+    }).length;
+
+    return {
+      total,
+      completedClients,
+      totalChecks,
+      completedChecks,
+      progress,
     };
-
-    const updated = await updateClientDb(id, payload);
-    setClients((prev) => prev.map((c) => (c.id === id ? mapDbClientToUi(updated) : c)));
-  };
+  }, [clients]);
 
   const addClientLocal = async () => {
-    if (!newClient.name.trim()) return;
+    if (!newClient.nomClient.trim()) return;
 
     setSaving(true);
+
     try {
-      const created = await addClientDb({
-        nom_client: newClient.name.trim(),
-        pole: newClient.owner.trim(),
-        statut: newClient.status,
-        notes: newClient.notes.trim(),
+      await addClientDb({
+        nom_client: newClient.nomClient.trim(),
+        bureau: newClient.bureau,
+        los: newClient.los,
+        person_in_charge: newClient.personInCharge.trim(),
+
+        paiement_ibp: newClient.paiementIbp,
+        remplissage: newClient.remplissage,
+        attestation_ec: newClient.attestationEc,
+        depot_dgi: newClient.depotDgi,
+
+        paiement_ibp_applicable: newClient.paiementIbpApplicable,
+        remplissage_applicable: newClient.remplissageApplicable,
+        attestation_ec_applicable: newClient.attestationEcApplicable,
+        depot_dgi_applicable: newClient.depotDgiApplicable,
       });
 
-      setClients((prev) => [mapDbClientToUi(created), ...prev]);
-      setNewClient({
-        id: 0,
-        name: "",
-        owner: "",
-        status: "not_submitted",
-        notes: "",
-      });
+      setNewClient(emptyClient);
+      await refreshClients();
+    } catch (error) {
+      console.error("Erreur ajout client :", error);
     } finally {
       setSaving(false);
     }
   };
 
-  const removeClient = async (id: number) => {
-    await deleteClientDb(id);
-    setClients((prev) => prev.filter((c) => c.id !== id));
+  const updateClientLocal = async (id: number, patch: Partial<UiClient>) => {
+    const current = clients.find((c) => c.id === id);
+    if (!current) return;
+
+    const updatedClient = {
+      ...current,
+      ...patch,
+    };
+
+    setClients((prev) =>
+      prev.map((client) => (client.id === id ? updatedClient : client))
+    );
+
+    try {
+      await updateClientDb(id, {
+        nom_client: updatedClient.nomClient,
+        bureau: updatedClient.bureau,
+        los: updatedClient.los,
+        person_in_charge: updatedClient.personInCharge,
+
+        paiement_ibp: updatedClient.paiementIbp,
+        remplissage: updatedClient.remplissage,
+        attestation_ec: updatedClient.attestationEc,
+        depot_dgi: updatedClient.depotDgi,
+
+        paiement_ibp_applicable: updatedClient.paiementIbpApplicable,
+        remplissage_applicable: updatedClient.remplissageApplicable,
+        attestation_ec_applicable: updatedClient.attestationEcApplicable,
+        depot_dgi_applicable: updatedClient.depotDgiApplicable,
+      });
+    } catch (error) {
+      console.error("Erreur mise à jour client :", error);
+      await refreshClients();
+    }
+  };
+
+  const deleteClientLocal = async (id: number) => {
+    const confirmed = window.confirm(
+      "Voulez-vous vraiment supprimer ce client du suivi ?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await deleteClientDb(id);
+      setClients((prev) => prev.filter((client) => client.id !== id));
+    } catch (error) {
+      console.error("Erreur suppression client :", error);
+    }
   };
 
   return (
     <div className="min-h-screen bg-slate-950 p-6 text-white">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div>
-          <h1 className="text-3xl font-black">Administration — Dépôt des états financiers</h1>
-          <p className="mt-2 text-slate-400">
-            Cette page est réservée à la mise à jour des statuts visibles sur les TV.
-          </p>
+      <div className="mx-auto max-w-[1800px] space-y-6">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div>
+            <h1 className="text-3xl font-black">
+              Administration — Suivi dépôt états financiers
+            </h1>
+            <p className="mt-2 text-slate-400">
+              Configuration des clients, critères applicables et avancement temps réel.
+            </p>
+          </div>
+
+          <Button
+            onClick={refreshClients}
+            variant="secondary"
+            className="w-fit"
+            disabled={loading}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Actualiser
+          </Button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <KpiCard title="Clients" value={stats.total} subtitle="Dossiers suivis" />
+          <KpiCard title="Clients terminés" value={stats.completedClients} subtitle="100% des critères" />
+          <KpiCard title="Critères applicables" value={stats.totalChecks} subtitle="Total à suivre" />
+          <KpiCard title="Critères validés" value={stats.completedChecks} subtitle="Oui" />
+          <KpiCard title="Avancement" value={`${stats.progress}%`} subtitle="Progression globale" />
         </div>
 
         <Card className="border-white/10 bg-white/5">
           <CardHeader>
-            <CardTitle>Ajouter un client</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5" />
+              Ajouter un client
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
+
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <Input
                 placeholder="Nom du client"
-                value={newClient.name}
-                onChange={(e) => setNewClient((p) => ({ ...p, name: e.target.value }))}
+                value={newClient.nomClient}
+                onChange={(e) =>
+                  setNewClient((p) => ({ ...p, nomClient: e.target.value }))
+                }
                 className="border-white/10 bg-white/5"
               />
+
+              <Select
+                value={newClient.bureau}
+                onValueChange={(v: Bureau) =>
+                  setNewClient((p) => ({ ...p, bureau: v }))
+                }
+              >
+                <SelectTrigger className="border-white/10 bg-white/5">
+                  <SelectValue placeholder="Bureau" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Kinshasa">Kinshasa</SelectItem>
+                  <SelectItem value="Lubumbashi">Lubumbashi</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={newClient.los}
+                onValueChange={(v: LOS) =>
+                  setNewClient((p) => ({ ...p, los: v }))
+                }
+              >
+                <SelectTrigger className="border-white/10 bg-white/5">
+                  <SelectValue placeholder="LOS" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Audit">Audit</SelectItem>
+                  <SelectItem value="BSO">BSO</SelectItem>
+                  <SelectItem value="TAX">TAX</SelectItem>
+                </SelectContent>
+              </Select>
+
               <Input
-                placeholder="Pôle / équipe"
-                value={newClient.owner}
-                onChange={(e) => setNewClient((p) => ({ ...p, owner: e.target.value }))}
+                placeholder="Person in charge"
+                value={newClient.personInCharge}
+                onChange={(e) =>
+                  setNewClient((p) => ({ ...p, personInCharge: e.target.value }))
+                }
                 className="border-white/10 bg-white/5"
               />
             </div>
 
-            <Select
-              value={newClient.status}
-              onValueChange={(v: ClientStatus) => setNewClient((p) => ({ ...p, status: v }))}
-            >
-              <SelectTrigger className="border-white/10 bg-white/5">
-                <SelectValue placeholder="Statut" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="not_submitted">Non déposé</SelectItem>
-                <SelectItem value="pending">En attente du dépôt</SelectItem>
-                <SelectItem value="submitted">Déjà déposé</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-3 font-semibold">Paiement IBP</div>
+                <div className="space-y-3">
+                  <ApplicabilitySelect
+                    value={newClient.paiementIbpApplicable}
+                    onChange={(v) =>
+                      setNewClient((p) => ({ ...p, paiementIbpApplicable: v }))
+                    }
+                  />
+                  <BooleanSelect
+                    value={newClient.paiementIbp}
+                    disabled={!newClient.paiementIbpApplicable}
+                    onChange={(v) => setNewClient((p) => ({ ...p, paiementIbp: v }))}
+                  />
+                </div>
+              </div>
 
-            <Textarea
-              placeholder="Notes"
-              value={newClient.notes}
-              onChange={(e) => setNewClient((p) => ({ ...p, notes: e.target.value }))}
-              className="border-white/10 bg-white/5"
-            />
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-3 font-semibold">Remplissage</div>
+                <div className="space-y-3">
+                  <ApplicabilitySelect
+                    value={newClient.remplissageApplicable}
+                    onChange={(v) =>
+                      setNewClient((p) => ({ ...p, remplissageApplicable: v }))
+                    }
+                  />
+                  <BooleanSelect
+                    value={newClient.remplissage}
+                    disabled={!newClient.remplissageApplicable}
+                    onChange={(v) => setNewClient((p) => ({ ...p, remplissage: v }))}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-3 font-semibold">Attestation EC</div>
+                <div className="space-y-3">
+                  <ApplicabilitySelect
+                    value={newClient.attestationEcApplicable}
+                    onChange={(v) =>
+                      setNewClient((p) => ({ ...p, attestationEcApplicable: v }))
+                    }
+                  />
+                  <BooleanSelect
+                    value={newClient.attestationEc}
+                    disabled={!newClient.attestationEcApplicable}
+                    onChange={(v) => setNewClient((p) => ({ ...p, attestationEc: v }))}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-3 font-semibold">Dépôt DGI</div>
+                <div className="space-y-3">
+                  <ApplicabilitySelect
+                    value={newClient.depotDgiApplicable}
+                    onChange={(v) =>
+                      setNewClient((p) => ({ ...p, depotDgiApplicable: v }))
+                    }
+                  />
+                  <BooleanSelect
+                    value={newClient.depotDgi}
+                    disabled={!newClient.depotDgiApplicable}
+                    onChange={(v) => setNewClient((p) => ({ ...p, depotDgi: v }))}
+                  />
+                </div>
+              </div>
+            </div>
 
             <Button onClick={addClientLocal} disabled={saving}>
               <Plus className="mr-2 h-4 w-4" />
@@ -182,56 +515,210 @@ export default function AdminPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-4">
-          {clients.map((client) => (
-            <Card key={client.id} className="border-white/10 bg-white/5">
-              <CardContent className="space-y-4 p-5">
-                <Input
-                  value={client.name}
-                  onChange={(e) => updateClientLocal(client.id, { name: e.target.value })}
-                  className="border-white/10 bg-white/5"
-                />
+        <Card className="border-white/10 bg-white/5">
+          <CardHeader>
+            <CardTitle>Liste des clients</CardTitle>
+          </CardHeader>
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input
-                    value={client.owner}
-                    onChange={(e) => updateClientLocal(client.id, { owner: e.target.value })}
-                    className="border-white/10 bg-white/5"
-                  />
+          <CardContent>
+            <div className="overflow-x-auto rounded-2xl border border-white/10">
+              <table className="w-full min-w-[1900px] border-collapse text-left text-sm">
+                <thead className="bg-slate-900 text-slate-200">
+                  <tr>
+                    <th className="px-4 py-4">Nom du client</th>
+                    <th className="px-4 py-4">Bureau</th>
+                    <th className="px-4 py-4">LOS</th>
+                    <th className="px-4 py-4">PIC</th>
+                    <th className="px-4 py-4">IBP applicable</th>
+                    <th className="px-4 py-4">Paiement IBP</th>
+                    <th className="px-4 py-4">Remplissage applicable</th>
+                    <th className="px-4 py-4">Remplissage</th>
+                    <th className="px-4 py-4">Attestation applicable</th>
+                    <th className="px-4 py-4">Attestation EC</th>
+                    <th className="px-4 py-4">DGI applicable</th>
+                    <th className="px-4 py-4">Dépôt DGI</th>
+                    <th className="px-4 py-4">Progression</th>
+                    <th className="px-4 py-4 text-right">Action</th>
+                  </tr>
+                </thead>
 
-                  <Select
-                    value={client.status}
-                    onValueChange={(v: ClientStatus) =>
-                      updateClientLocal(client.id, { status: v })
-                    }
-                  >
-                    <SelectTrigger className="border-white/10 bg-white/5">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="not_submitted">Non déposé</SelectItem>
-                      <SelectItem value="pending">En attente du dépôt</SelectItem>
-                      <SelectItem value="submitted">Déjà déposé</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <tbody>
+                  {clients.length === 0 ? (
+                    <tr>
+                      <td colSpan={14} className="px-4 py-8 text-center text-slate-400">
+                        Aucun client enregistré pour le moment.
+                      </td>
+                    </tr>
+                  ) : (
+                    clients.map((client) => {
+                      const progress = getProgress(client);
 
-                <Textarea
-                  value={client.notes}
-                  onChange={(e) => updateClientLocal(client.id, { notes: e.target.value })}
-                  className="border-white/10 bg-white/5"
-                />
+                      return (
+                        <tr key={client.id} className="border-t border-white/10 bg-slate-950/30">
+                          <td className="px-4 py-4">
+                            <Input
+                              value={client.nomClient}
+                              onChange={(e) =>
+                                updateClientLocal(client.id, { nomClient: e.target.value })
+                              }
+                              className="min-w-[220px] border-white/10 bg-white/5"
+                            />
+                          </td>
 
-                <div className="flex justify-end">
-                  <Button variant="destructive" onClick={() => removeClient(client.id)}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Supprimer
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                          <td className="px-4 py-4">
+                            <Select
+                              value={client.bureau}
+                              onValueChange={(v: Bureau) =>
+                                updateClientLocal(client.id, { bureau: v })
+                              }
+                            >
+                              <SelectTrigger className="w-[150px] border-white/10 bg-white/5">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Kinshasa">Kinshasa</SelectItem>
+                                <SelectItem value="Lubumbashi">Lubumbashi</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <Select
+                              value={client.los}
+                              onValueChange={(v: LOS) =>
+                                updateClientLocal(client.id, { los: v })
+                              }
+                            >
+                              <SelectTrigger className="w-[120px] border-white/10 bg-white/5">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Audit">Audit</SelectItem>
+                                <SelectItem value="BSO">BSO</SelectItem>
+                                <SelectItem value="TAX">TAX</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <Input
+                              value={client.personInCharge}
+                              onChange={(e) =>
+                                updateClientLocal(client.id, {
+                                  personInCharge: e.target.value,
+                                })
+                              }
+                              className="min-w-[180px] border-white/10 bg-white/5"
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <ApplicabilitySelect
+                              value={client.paiementIbpApplicable}
+                              onChange={(v) =>
+                                updateClientLocal(client.id, {
+                                  paiementIbpApplicable: v,
+                                })
+                              }
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <BooleanSelect
+                              value={client.paiementIbp}
+                              disabled={!client.paiementIbpApplicable}
+                              onChange={(v) =>
+                                updateClientLocal(client.id, { paiementIbp: v })
+                              }
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <ApplicabilitySelect
+                              value={client.remplissageApplicable}
+                              onChange={(v) =>
+                                updateClientLocal(client.id, {
+                                  remplissageApplicable: v,
+                                })
+                              }
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <BooleanSelect
+                              value={client.remplissage}
+                              disabled={!client.remplissageApplicable}
+                              onChange={(v) =>
+                                updateClientLocal(client.id, { remplissage: v })
+                              }
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <ApplicabilitySelect
+                              value={client.attestationEcApplicable}
+                              onChange={(v) =>
+                                updateClientLocal(client.id, {
+                                  attestationEcApplicable: v,
+                                })
+                              }
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <BooleanSelect
+                              value={client.attestationEc}
+                              disabled={!client.attestationEcApplicable}
+                              onChange={(v) =>
+                                updateClientLocal(client.id, { attestationEc: v })
+                              }
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <ApplicabilitySelect
+                              value={client.depotDgiApplicable}
+                              onChange={(v) =>
+                                updateClientLocal(client.id, {
+                                  depotDgiApplicable: v,
+                                })
+                              }
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <BooleanSelect
+                              value={client.depotDgi}
+                              disabled={!client.depotDgiApplicable}
+                              onChange={(v) =>
+                                updateClientLocal(client.id, { depotDgi: v })
+                              }
+                            />
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-100">
+                            {progress.completed}/{progress.total} — {progress.percentage}%
+                          </td>
+
+                          <td className="px-4 py-4 text-right">
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => deleteClientLocal(client.id)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Supprimer
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

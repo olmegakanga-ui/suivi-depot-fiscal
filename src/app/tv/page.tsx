@@ -2,78 +2,104 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertTriangle,
   Building2,
   CheckCircle2,
   Clock3,
   Expand,
-  FileWarning,
-  Target,
-  TimerReset,
+  FileCheck2,
+  Landmark,
   TrendingUp,
-  LayoutDashboard,
-  Rows3,
+  WalletCards,
+  XCircle,
 } from "lucide-react";
 
-const TIMEZONE = "Africa/Kinshasa";
-const DEADLINE = "2026-04-30T23:59:59+01:00";
-const TRACKING_START = "2026-04-30T00:01:00+01:00";
-const VIEW_ROTATION_MS = 12000;
-
-type ClientStatus = "not_submitted" | "pending" | "submitted";
-type ViewMode = "executive" | "detailed";
+type Bureau = "Kinshasa" | "Lubumbashi";
+type LOS = "Audit" | "BSO" | "TAX";
 
 type UiClient = {
   id: number;
-  name: string;
-  owner: string;
-  status: ClientStatus;
-  notes: string;
+  nomClient: string;
+  bureau: Bureau;
+  los: LOS;
+  personInCharge: string;
+
+  paiementIbp: boolean;
+  remplissage: boolean;
+  attestationEc: boolean;
+  depotDgi: boolean;
+
+  paiementIbpApplicable: boolean;
+  remplissageApplicable: boolean;
+  attestationEcApplicable: boolean;
+  depotDgiApplicable: boolean;
 };
 
-const statusMeta: Record<
-  ClientStatus,
-  {
-    label: string;
-    badge: string;
-    card: string;
-    dot: string;
-  }
-> = {
-  not_submitted: {
-    label: "Non déposé",
-    badge: "bg-red-500/15 text-red-200 border-red-400/30",
-    card: "border-red-400/20 bg-red-500/10",
-    dot: "bg-red-400",
-  },
-  pending: {
-    label: "En attente du dépôt",
-    badge: "bg-amber-500/15 text-amber-100 border-amber-400/30",
-    card: "border-amber-400/20 bg-amber-500/10",
-    dot: "bg-amber-300",
-  },
-  submitted: {
-    label: "Déjà déposé",
-    badge: "bg-emerald-500/15 text-emerald-100 border-emerald-400/30",
-    card: "border-emerald-400/20 bg-emerald-500/10",
-    dot: "bg-emerald-300",
-  },
-};
+const TIMEZONE = "Africa/Kinshasa";
+const DEADLINE = "2026-04-30T23:59:59+01:00";
 
 function mapDbClientToUi(client: any): UiClient {
   return {
     id: client.id,
-    name: client.nom_client,
-    owner: client.pole ?? "",
-    status: client.statut,
-    notes: client.notes ?? "",
+    nomClient: client.nom_client,
+    bureau: client.bureau ?? "Kinshasa",
+    los: client.los ?? "Audit",
+    personInCharge: client.person_in_charge ?? "",
+
+    paiementIbp: Boolean(client.paiement_ibp),
+    remplissage: Boolean(client.remplissage),
+    attestationEc: Boolean(client.attestation_ec),
+    depotDgi: Boolean(client.depot_dgi),
+
+    paiementIbpApplicable: client.paiement_ibp_applicable ?? true,
+    remplissageApplicable: client.remplissage_applicable ?? true,
+    attestationEcApplicable: client.attestation_ec_applicable ?? true,
+    depotDgiApplicable: client.depot_dgi_applicable ?? true,
+  };
+}
+
+function getClientProgress(client: UiClient) {
+  const steps = [
+    {
+      applicable: client.paiementIbpApplicable,
+      value: client.paiementIbp,
+    },
+    {
+      applicable: client.remplissageApplicable,
+      value: client.remplissage,
+    },
+    {
+      applicable: client.attestationEcApplicable,
+      value: client.attestationEc,
+    },
+    {
+      applicable: client.depotDgiApplicable,
+      value: client.depotDgi,
+    },
+  ];
+
+  const applicableSteps = steps.filter((step) => step.applicable);
+  const completed = applicableSteps.filter((step) => step.value).length;
+  const total = applicableSteps.length;
+
+  return {
+    completed,
+    total,
+    percentage: total === 0 ? 100 : Math.round((completed / total) * 100),
+    isCritical: total > 0 && completed < total,
   };
 }
 
@@ -91,29 +117,17 @@ function formatNowInKinshasa(date = new Date()) {
 }
 
 function getRemaining(targetDate: string) {
-  const now = new Date();
-  const diff = new Date(targetDate).getTime() - now.getTime();
+  const diff = new Date(targetDate).getTime() - new Date().getTime();
 
-  if (diff <= 0) {
-    return {
-      total: 0,
-      days: 0,
-      hours: 0,
-      minutes: 0,
-      seconds: 0,
-      expired: true,
-    };
-  }
+  if (diff <= 0) return { days: 0, hours: 0, minutes: 0, seconds: 0 };
 
   const totalSeconds = Math.floor(diff / 1000);
 
   return {
-    total: diff,
     days: Math.floor(totalSeconds / (24 * 3600)),
     hours: Math.floor((totalSeconds % (24 * 3600)) / 3600),
     minutes: Math.floor((totalSeconds % 3600) / 60),
     seconds: totalSeconds % 60,
-    expired: false,
   };
 }
 
@@ -121,78 +135,65 @@ function pad(value: number) {
   return String(value).padStart(2, "0");
 }
 
-function MetricCard({
-  label,
+function StepBadge({
+  applicable,
   value,
-  accent,
 }: {
-  label: string;
-  value: number;
-  accent: string;
+  applicable: boolean;
+  value: boolean;
 }) {
-  return (
-    <Card className="rounded-3xl border-white/15 bg-slate-900/55 shadow-2xl backdrop-blur-md">
-      <CardContent className="p-6 xl:p-8">
-        <div className="text-sm uppercase tracking-[0.25em] text-slate-100 xl:text-base">
-          {label}
-        </div>
-        <div className={`mt-3 text-5xl font-black xl:text-7xl 2xl:text-8xl ${accent}`}>
-          {pad(value)}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function CountdownBoard() {
-  const [remaining, setRemaining] = useState(getRemaining(DEADLINE));
-
-  useEffect(() => {
-    const id = setInterval(() => setRemaining(getRemaining(DEADLINE)), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <div className="w-full">
-      <div className="mb-6 flex items-center gap-3 text-white xl:mb-10">
-        <Clock3 className="h-8 w-8" />
-        <div>
-          <div className="text-2xl font-semibold xl:text-3xl">
-            {remaining.expired ? "Échéance atteinte" : "Compte à rebours avant clôture fiscale"}
-          </div>
-          <div className="text-base text-slate-100 xl:text-lg">
-            Date limite : 30 avril 2026 à 23:59 (heure de Kinshasa)
-          </div>
-        </div>
+  if (!applicable) {
+    return (
+      <div className="mx-auto flex min-w-[92px] items-center justify-center rounded-full border border-slate-300/30 bg-slate-500/20 px-4 py-2 font-bold text-slate-200">
+        N/A
       </div>
+    );
+  }
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4 xl:gap-6">
-        <MetricCard label="Jours" value={remaining.days} accent="text-white" />
-        <MetricCard label="Heures" value={remaining.hours} accent="text-sky-200" />
-        <MetricCard label="Minutes" value={remaining.minutes} accent="text-violet-200" />
-        <MetricCard label="Secondes" value={remaining.seconds} accent="text-red-200" />
-      </div>
+  return value ? (
+    <div className="mx-auto flex min-w-[92px] items-center justify-center rounded-full border border-emerald-300/40 bg-emerald-500/25 px-4 py-2 font-bold text-emerald-100">
+      <CheckCircle2 className="mr-2 h-4 w-4" />
+      Oui
+    </div>
+  ) : (
+    <div className="mx-auto flex min-w-[92px] items-center justify-center rounded-full border border-red-300/40 bg-red-500/25 px-4 py-2 font-bold text-red-100">
+      <XCircle className="mr-2 h-4 w-4" />
+      Non
     </div>
   );
 }
 
-function ProgressBar({ percentage }: { percentage: number }) {
-  return (
-    <Card className="rounded-3xl border-white/15 bg-slate-900/55 shadow-2xl backdrop-blur-md xl:col-span-5">
-      <CardContent className="p-5 xl:p-6">
-        <div className="mb-3 flex items-center justify-between text-sm text-white xl:text-base">
-          <span>Progression globale</span>
-          <span className="font-bold">{percentage}%</span>
-        </div>
+function ClientProgress({ client }: { client: UiClient }) {
+  const progress = getClientProgress(client);
 
-        <div className="h-3 w-full overflow-hidden rounded-full bg-white/10">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-blue-400 via-sky-300 to-emerald-300 transition-all duration-700"
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-      </CardContent>
-    </Card>
+  return (
+    <div className="min-w-[150px]">
+      <div className="mb-2 flex items-center justify-between text-sm">
+        <span
+          className={
+            progress.completed === progress.total
+              ? "font-bold text-emerald-100"
+              : "font-bold text-amber-100"
+          }
+        >
+          {progress.completed}/{progress.total}
+        </span>
+        <span className="text-slate-100/80">{progress.percentage}%</span>
+      </div>
+
+      <div className="h-2.5 overflow-hidden rounded-full bg-white/10">
+        <div
+          className={
+            progress.percentage === 100
+              ? "h-full rounded-full bg-emerald-400 transition-all duration-700"
+              : progress.percentage >= 50
+              ? "h-full rounded-full bg-amber-300 transition-all duration-700"
+              : "h-full rounded-full bg-red-400 transition-all duration-700"
+          }
+          style={{ width: `${progress.percentage}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -211,14 +212,14 @@ function KpiCard({
 }) {
   return (
     <Card className="rounded-3xl border-white/15 bg-slate-900/55 shadow-2xl backdrop-blur-md">
-      <CardContent className="p-5 xl:p-6">
+      <CardContent className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-xs uppercase tracking-[0.22em] text-slate-200 xl:text-sm">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-200">
               {title}
             </div>
-            <div className={`mt-2 text-3xl font-black xl:text-4xl ${accent}`}>{value}</div>
-            <div className="mt-1 text-sm text-slate-100/80 xl:text-base">{subtitle}</div>
+            <div className={`mt-2 text-3xl font-black ${accent}`}>{value}</div>
+            <div className="mt-1 text-sm text-slate-100/80">{subtitle}</div>
           </div>
           <div className="rounded-2xl border border-white/15 bg-white/10 p-3 text-white">
             {icon}
@@ -232,216 +233,455 @@ function KpiCard({
 function ExecutiveSummary({ clients }: { clients: UiClient[] }) {
   const stats = useMemo(() => {
     const total = clients.length;
-    const submitted = clients.filter((c) => c.status === "submitted").length;
-    const pending = clients.filter((c) => c.status === "pending").length;
-    const notSubmitted = clients.filter((c) => c.status === "not_submitted").length;
-    const completionRate = total === 0 ? 0 : Math.round((submitted / total) * 100);
+
+    const applicableIbp = clients.filter((c) => c.paiementIbpApplicable);
+    const applicableRemplissage = clients.filter((c) => c.remplissageApplicable);
+    const applicableAttestation = clients.filter((c) => c.attestationEcApplicable);
+    const applicableDepot = clients.filter((c) => c.depotDgiApplicable);
+
+    const paiementOk = applicableIbp.filter((c) => c.paiementIbp).length;
+    const remplissageOk = applicableRemplissage.filter((c) => c.remplissage).length;
+    const attestationOk = applicableAttestation.filter((c) => c.attestationEc).length;
+    const depotOk = applicableDepot.filter((c) => c.depotDgi).length;
+
+    const critical = clients.filter((c) => getClientProgress(c).isCritical).length;
+
+    const totalChecks =
+      applicableIbp.length +
+      applicableRemplissage.length +
+      applicableAttestation.length +
+      applicableDepot.length;
+
+    const completedChecks =
+      paiementOk + remplissageOk + attestationOk + depotOk;
+
+    const completionRate =
+      totalChecks === 0 ? 100 : Math.round((completedChecks / totalChecks) * 100);
 
     return {
       total,
-      submitted,
-      pending,
-      notSubmitted,
+      paiementOk,
+      remplissageOk,
+      attestationOk,
+      depotOk,
+      critical,
       completionRate,
     };
   }, [clients]);
 
   return (
-    <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 xl:grid-cols-7">
       <KpiCard
-        title="Total dossiers"
+        title="Clients"
         value={stats.total}
-        subtitle="Portefeuille suivi"
+        subtitle="Dossiers filtrés"
         icon={<Building2 className="h-6 w-6" />}
         accent="text-white"
       />
       <KpiCard
-        title="Déjà déposés"
-        value={stats.submitted}
-        subtitle="Dossiers clôturés"
-        icon={<CheckCircle2 className="h-6 w-6" />}
+        title="Paiement IBP"
+        value={stats.paiementOk}
+        subtitle="Validés"
+        icon={<WalletCards className="h-6 w-6" />}
         accent="text-emerald-200"
       />
       <KpiCard
-        title="En attente"
-        value={stats.pending}
-        subtitle="Prêts ou en cours"
-        icon={<TimerReset className="h-6 w-6" />}
+        title="Remplissage"
+        value={stats.remplissageOk}
+        subtitle="Complétés"
+        icon={<FileCheck2 className="h-6 w-6" />}
+        accent="text-sky-200"
+      />
+      <KpiCard
+        title="Attestation EC"
+        value={stats.attestationOk}
+        subtitle="Obtenues"
+        icon={<CheckCircle2 className="h-6 w-6" />}
+        accent="text-violet-200"
+      />
+      <KpiCard
+        title="Dépôt DGI"
+        value={stats.depotOk}
+        subtitle="Effectués"
+        icon={<Landmark className="h-6 w-6" />}
         accent="text-amber-100"
       />
       <KpiCard
-        title="Non déposés"
-        value={stats.notSubmitted}
-        subtitle="Points critiques"
+        title="Retards"
+        value={stats.critical}
+        subtitle="Dossiers incomplets"
         icon={<AlertTriangle className="h-6 w-6" />}
         accent="text-red-200"
       />
       <KpiCard
-        title="Taux d’avancement"
+        title="Avancement"
         value={`${stats.completionRate}%`}
-        subtitle="Progression globale"
+        subtitle="Progression"
         icon={<TrendingUp className="h-6 w-6" />}
-        accent="text-sky-200"
+        accent="text-emerald-200"
       />
-
-      <ProgressBar percentage={stats.completionRate} />
-
-      {stats.notSubmitted > 5 && (
-        <Card className="rounded-3xl border-red-400/30 bg-red-500/10 backdrop-blur-md xl:col-span-5">
-          <CardContent className="p-4 text-white">
-            ⚠️ Attention : plusieurs dossiers critiques restent non déposés.
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
 
-function PriorityStrip({ clients }: { clients: UiClient[] }) {
-  const urgentClients = useMemo(() => {
-    return clients
-      .filter((c) => c.status !== "submitted")
-      .sort((a, b) => {
-        const order = { not_submitted: 0, pending: 1, submitted: 2 };
-        return order[a.status] - order[b.status] || a.name.localeCompare(b.name);
-      });
-  }, [clients]);
+function CountdownMini() {
+  const [remaining, setRemaining] = useState(getRemaining(DEADLINE));
 
-  if (urgentClients.length === 0) {
-    return (
-      <Card className="rounded-[2rem] border-emerald-300/30 bg-emerald-500/10 backdrop-blur-md">
-        <CardContent className="flex items-center gap-3 p-6">
-          <CheckCircle2 className="h-6 w-6 text-emerald-200" />
-          <div>
-            <div className="text-lg font-bold text-emerald-100 xl:text-xl">
-              Tous les dossiers visibles sont déposés
-            </div>
-            <div className="text-sm text-emerald-100/80 xl:text-base">
-              Aucun dossier critique à afficher pour le moment.
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  useEffect(() => {
+    const id = setInterval(() => setRemaining(getRemaining(DEADLINE)), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
-    <Card className="overflow-hidden rounded-[2rem] border-white/15 bg-slate-900/55 backdrop-blur-md">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-3 text-xl text-white xl:text-2xl">
-          <FileWarning className="h-6 w-6 text-red-200" />
-          Bandeau de vigilance opérationnelle
-        </CardTitle>
-      </CardHeader>
+    <Card className="rounded-3xl border-white/20 bg-slate-950/85 shadow-2xl backdrop-blur-xl">
+      <CardContent className="flex items-center justify-between gap-6 p-5">
+        <div className="flex items-center gap-3">
+          <div className="rounded-2xl bg-white/10 p-3">
+            <Clock3 className="h-7 w-7 text-white" />
+          </div>
+          <div>
+            <div className="text-lg font-black text-white xl:text-xl">
+              Échéance fiscale
+            </div>
+            <div className="text-sm font-medium text-slate-200">
+              30 avril 2026 à 23:59
+            </div>
+          </div>
+        </div>
 
-      <CardContent className="pb-6">
-        <div className="relative overflow-hidden rounded-3xl border border-white/15 bg-slate-950/35 py-4">
-          <motion.div
-            className="flex gap-4 px-4"
-            animate={{ x: ["0%", "-50%"] }}
-            transition={{ duration: 26, repeat: Infinity, ease: "linear" }}
-          >
-            {[...urgentClients, ...urgentClients].map((client, index) => {
-              const meta = statusMeta[client.status];
-              return (
-                <div
-                  key={`${client.id}-${index}`}
-                  className={`min-w-[320px] rounded-2xl border px-4 py-3 ${meta.card}`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="truncate text-base font-bold text-white xl:text-lg">
-                      {client.name}
-                    </div>
-                    <Badge className={`rounded-full border px-3 py-1 text-xs ${meta.badge}`}>
-                      {meta.label}
-                    </Badge>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-100/85">
-                    {client.owner || "Pôle non renseigné"}
-                  </div>
-                  {client.notes ? (
-                    <div className="mt-2 line-clamp-2 text-sm text-slate-50/90">
-                      {client.notes}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </motion.div>
+        <div className="grid grid-cols-4 gap-3 text-center">
+          {[
+            { label: "Jours", value: remaining.days },
+            { label: "Hrs", value: remaining.hours },
+            { label: "Min", value: remaining.minutes },
+            { label: "Sec", value: remaining.seconds, red: true },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className={`rounded-2xl border p-3 shadow-lg ${
+                item.red
+                  ? "border-red-300/30 bg-red-950/70"
+                  : "border-white/20 bg-slate-900/80"
+              }`}
+            >
+              <div
+                className={`text-3xl font-black drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)] ${
+                  item.red ? "text-red-300" : "text-white"
+                }`}
+              >
+                {pad(item.value)}
+              </div>
+              <div
+                className={`mt-1 text-[11px] font-bold uppercase tracking-[0.16em] ${
+                  item.red ? "text-red-100" : "text-white/90"
+                }`}
+              >
+                {item.label}
+              </div>
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function StatusColumn({
-  title,
-  icon,
-  clients,
-  status,
+function FiltersPanel({
+  bureauFilter,
+  setBureauFilter,
+  losFilter,
+  setLosFilter,
+  picFilter,
+  setPicFilter,
+  paiementFilter,
+  setPaiementFilter,
+  remplissageFilter,
+  setRemplissageFilter,
+  attestationFilter,
+  setAttestationFilter,
+  depotFilter,
+  setDepotFilter,
+  criticalOnly,
+  setCriticalOnly,
+  picOptions,
+  filteredCount,
+  totalCount,
 }: {
-  title: string;
-  icon: React.ReactNode;
-  clients: UiClient[];
-  status: ClientStatus;
+  bureauFilter: string;
+  setBureauFilter: (v: string) => void;
+  losFilter: string;
+  setLosFilter: (v: string) => void;
+  picFilter: string;
+  setPicFilter: (v: string) => void;
+  paiementFilter: string;
+  setPaiementFilter: (v: string) => void;
+  remplissageFilter: string;
+  setRemplissageFilter: (v: string) => void;
+  attestationFilter: string;
+  setAttestationFilter: (v: string) => void;
+  depotFilter: string;
+  setDepotFilter: (v: string) => void;
+  criticalOnly: boolean;
+  setCriticalOnly: (v: boolean) => void;
+  picOptions: string[];
+  filteredCount: number;
+  totalCount: number;
 }) {
-  const filtered = useMemo(
-    () => clients.filter((client) => client.status === status),
-    [clients, status]
-  );
-
-  const meta = statusMeta[status];
+  const reset = () => {
+    setBureauFilter("all");
+    setLosFilter("all");
+    setPicFilter("all");
+    setPaiementFilter("all");
+    setRemplissageFilter("all");
+    setAttestationFilter("all");
+    setDepotFilter("all");
+    setCriticalOnly(false);
+  };
 
   return (
-    <Card className="h-full rounded-[2rem] border-white/15 bg-slate-900/55 backdrop-blur-md">
+    <Card className="rounded-[2rem] border-white/15 bg-slate-900/55 shadow-2xl backdrop-blur-md">
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between gap-3 text-xl text-white xl:text-2xl">
-          <div className="flex items-center gap-3">
-            {icon}
-            {title}
+        <CardTitle className="flex items-center justify-between gap-4 text-xl text-white xl:text-2xl">
+          <span>Filtres de suivi</span>
+
+          <button
+            onClick={() => setCriticalOnly(!criticalOnly)}
+            className={
+              criticalOnly
+                ? "rounded-2xl border border-red-300/40 bg-red-500/25 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-500/35"
+                : "rounded-2xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/20"
+            }
+          >
+            <AlertTriangle className="mr-2 inline h-4 w-4" />
+            Retards critiques
+          </button>
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+          <Select value={bureauFilter} onValueChange={setBureauFilter}>
+            <SelectTrigger className="border-white/15 bg-white/10 text-white">
+              <SelectValue placeholder="Bureau" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous bureaux</SelectItem>
+              <SelectItem value="Kinshasa">Kinshasa</SelectItem>
+              <SelectItem value="Lubumbashi">Lubumbashi</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={losFilter} onValueChange={setLosFilter}>
+            <SelectTrigger className="border-white/15 bg-white/10 text-white">
+              <SelectValue placeholder="LOS" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toutes LOS</SelectItem>
+              <SelectItem value="Audit">Audit</SelectItem>
+              <SelectItem value="BSO">BSO</SelectItem>
+              <SelectItem value="TAX">TAX</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={picFilter} onValueChange={setPicFilter}>
+            <SelectTrigger className="border-white/15 bg-white/10 text-white">
+              <SelectValue placeholder="PIC" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous PIC</SelectItem>
+              {picOptions.map((pic) => (
+                <SelectItem key={pic} value={pic}>
+                  {pic}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={paiementFilter} onValueChange={setPaiementFilter}>
+            <SelectTrigger className="border-white/15 bg-white/10 text-white">
+              <SelectValue placeholder="Paiement" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Paiement IBP</SelectItem>
+              <SelectItem value="true">Oui</SelectItem>
+              <SelectItem value="false">Non</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={remplissageFilter} onValueChange={setRemplissageFilter}>
+            <SelectTrigger className="border-white/15 bg-white/10 text-white">
+              <SelectValue placeholder="Remplissage" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Remplissage</SelectItem>
+              <SelectItem value="true">Oui</SelectItem>
+              <SelectItem value="false">Non</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={attestationFilter} onValueChange={setAttestationFilter}>
+            <SelectTrigger className="border-white/15 bg-white/10 text-white">
+              <SelectValue placeholder="Attestation" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Attestation EC</SelectItem>
+              <SelectItem value="true">Oui</SelectItem>
+              <SelectItem value="false">Non</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={depotFilter} onValueChange={setDepotFilter}>
+            <SelectTrigger className="border-white/15 bg-white/10 text-white">
+              <SelectValue placeholder="Dépôt DGI" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Dépôt DGI</SelectItem>
+              <SelectItem value="true">Oui</SelectItem>
+              <SelectItem value="false">Non</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-4">
+          <div className="text-sm text-slate-100/80">
+            Résultat :{" "}
+            <span className="font-bold text-white">{filteredCount}</span> sur{" "}
+            <span className="font-bold text-white">{totalCount}</span> client(s)
           </div>
-          <Badge className={`rounded-full border px-3 py-1 text-sm ${meta.badge}`}>
-            {filtered.length}
+
+          <button
+            onClick={reset}
+            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/20"
+          >
+            Réinitialiser
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MonitoringTable({ clients }: { clients: UiClient[] }) {
+  const orderedClients = useMemo(() => {
+    return [...clients].sort((a, b) => {
+      const aProgress = getClientProgress(a);
+      const bProgress = getClientProgress(b);
+
+      return (
+        aProgress.completed - bProgress.completed ||
+        Number(a.depotDgi) - Number(b.depotDgi) ||
+        a.nomClient.localeCompare(b.nomClient)
+      );
+    });
+  }, [clients]);
+
+  return (
+    <Card className="rounded-[2rem] border-white/15 bg-slate-900/60 shadow-2xl backdrop-blur-md">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center justify-between gap-3 text-2xl text-white">
+          <div className="flex items-center gap-3">
+            <FileCheck2 className="h-7 w-7 text-sky-200" />
+            Tableau de suivi en temps réel
+          </div>
+
+          <Badge className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-base text-white">
+            {orderedClients.length} clients
           </Badge>
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="h-[52vh]">
-        <ScrollArea className="h-full pr-4">
-          <div className="space-y-4">
-            {filtered.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-white/20 p-6 text-slate-100/80">
-                Aucun dossier dans cette catégorie.
-              </div>
-            ) : (
-              filtered.map((client) => (
-                <motion.div
-                  key={client.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`rounded-3xl border p-4 ${meta.card}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-3">
-                        <span className={`h-3.5 w-3.5 shrink-0 rounded-full ${meta.dot}`} />
-                        <div className="truncate text-lg font-bold text-white xl:text-xl">
-                          {client.name}
+      <CardContent>
+        <ScrollArea className="h-[60vh] pr-3">
+          <div className="overflow-hidden rounded-3xl border border-white/20">
+            <table className="w-full border-collapse text-left text-base xl:text-lg">
+              <thead className="sticky top-0 z-10 bg-slate-950/95 text-white backdrop-blur-md">
+                <tr>
+                  <th className="px-5 py-5 font-black">Nom du client</th>
+                  <th className="px-5 py-5 font-black">Bureau</th>
+                  <th className="px-5 py-5 font-black">LOS</th>
+                  <th className="px-5 py-5 font-black">Person in charge</th>
+                  <th className="px-5 py-5 text-center font-black">Paiement IBP</th>
+                  <th className="px-5 py-5 text-center font-black">Remplissage</th>
+                  <th className="px-5 py-5 text-center font-black">Attestation EC</th>
+                  <th className="px-5 py-5 text-center font-black">Dépôt DGI</th>
+                  <th className="px-5 py-5 text-center font-black">Progression</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {orderedClients.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-5 py-12 text-center text-xl text-slate-200">
+                      Aucun client ne correspond au filtre sélectionné.
+                    </td>
+                  </tr>
+                ) : (
+                  orderedClients.map((client, index) => (
+                    <motion.tr
+                      key={client.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: Math.min(index * 0.015, 0.3) }}
+                      className="border-t border-white/10 bg-slate-900/35 text-white transition hover:bg-white/10"
+                    >
+                      <td className="max-w-[340px] px-5 py-5 font-bold">
+                        <div className="truncate">{client.nomClient}</div>
+                      </td>
+
+                      <td className="px-5 py-5">
+                        <Badge className="rounded-full border border-sky-200/30 bg-sky-500/20 px-4 py-2 text-sky-100">
+                          {client.bureau}
+                        </Badge>
+                      </td>
+
+                      <td className="px-5 py-5">
+                        <Badge className="rounded-full border border-violet-200/30 bg-violet-500/20 px-4 py-2 text-violet-100">
+                          {client.los}
+                        </Badge>
+                      </td>
+
+                      <td className="max-w-[260px] px-5 py-5 text-slate-100">
+                        <div className="truncate">
+                          {client.personInCharge || "Non renseigné"}
                         </div>
-                      </div>
-                      <div className="mt-2 text-sm text-slate-100/85 xl:text-base">
-                        Pôle : {client.owner || "Non renseigné"}
-                      </div>
-                      {client.notes ? (
-                        <div className="mt-2 line-clamp-3 text-sm leading-relaxed text-slate-50/90 xl:text-base">
-                          {client.notes}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </motion.div>
-              ))
-            )}
+                      </td>
+
+                      <td className="px-5 py-5 text-center">
+                        <StepBadge
+                          applicable={client.paiementIbpApplicable}
+                          value={client.paiementIbp}
+                        />
+                      </td>
+
+                      <td className="px-5 py-5 text-center">
+                        <StepBadge
+                          applicable={client.remplissageApplicable}
+                          value={client.remplissage}
+                        />
+                      </td>
+
+                      <td className="px-5 py-5 text-center">
+                        <StepBadge
+                          applicable={client.attestationEcApplicable}
+                          value={client.attestationEc}
+                        />
+                      </td>
+
+                      <td className="px-5 py-5 text-center">
+                        <StepBadge
+                          applicable={client.depotDgiApplicable}
+                          value={client.depotDgi}
+                        />
+                      </td>
+
+                      <td className="px-5 py-5 text-center">
+                        <ClientProgress client={client} />
+                      </td>
+                    </motion.tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </ScrollArea>
       </CardContent>
@@ -449,117 +689,29 @@ function StatusColumn({
   );
 }
 
-function RotatingSpotlight({ clients }: { clients: UiClient[] }) {
-  const rotatingClients = useMemo(() => {
-    return clients
-      .filter((c) => c.status !== "submitted")
-      .sort((a, b) => {
-        const order = { not_submitted: 0, pending: 1, submitted: 2 };
-        return order[a.status] - order[b.status] || a.name.localeCompare(b.name);
-      });
-  }, [clients]);
-
-  const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    if (rotatingClients.length <= 1) return;
-    const id = setInterval(() => {
-      setIndex((prev) => (prev + 1) % rotatingClients.length);
-    }, 5000);
-    return () => clearInterval(id);
-  }, [rotatingClients]);
-
-  if (rotatingClients.length === 0) return null;
-
-  const client = rotatingClients[index % rotatingClients.length];
-  const meta = statusMeta[client.status];
-
-  return (
-    <Card className="rounded-[2rem] border-white/15 bg-slate-900/55 backdrop-blur-md">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-3 text-xl text-white xl:text-2xl">
-          <Target className="h-6 w-6 text-sky-200" />
-          Focus opérationnel
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={client.id}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35 }}
-            className={`rounded-3xl border p-6 ${meta.card}`}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-2xl font-black text-white xl:text-3xl">{client.name}</div>
-                <div className="mt-2 text-sm text-slate-100/85 xl:text-base">
-                  Pôle : {client.owner || "Non renseigné"}
-                </div>
-                {client.notes ? (
-                  <div className="mt-4 text-base leading-relaxed text-slate-50/95 xl:text-lg">
-                    {client.notes}
-                  </div>
-                ) : (
-                  <div className="mt-4 text-base leading-relaxed text-slate-100/70 xl:text-lg">
-                    Aucun commentaire opérationnel renseigné.
-                  </div>
-                )}
-              </div>
-              <Badge className={`rounded-full border px-4 py-2 text-sm xl:text-base ${meta.badge}`}>
-                {meta.label}
-              </Badge>
-            </div>
-          </motion.div>
-        </AnimatePresence>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ViewPill({ mode }: { mode: ViewMode }) {
-  return (
-    <div className="rounded-2xl border border-white/20 bg-slate-900/55 px-4 py-3 text-white backdrop-blur-md">
-      <div className="flex items-center gap-2">
-        {mode === "executive" ? (
-          <LayoutDashboard className="h-4 w-4" />
-        ) : (
-          <Rows3 className="h-4 w-4" />
-        )}
-        <span className="text-sm xl:text-base">
-          {mode === "executive" ? "Vue exécutive" : "Vue détaillée"}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 export default function TvPage() {
   const [clients, setClients] = useState<UiClient[]>([]);
   const [now, setNow] = useState(new Date());
-  const [viewMode, setViewMode] = useState<ViewMode>("executive");
+
+  const [bureauFilter, setBureauFilter] = useState("all");
+  const [losFilter, setLosFilter] = useState("all");
+  const [picFilter, setPicFilter] = useState("all");
+  const [paiementFilter, setPaiementFilter] = useState("all");
+  const [remplissageFilter, setRemplissageFilter] = useState("all");
+  const [attestationFilter, setAttestationFilter] = useState("all");
+  const [depotFilter, setDepotFilter] = useState("all");
+  const [criticalOnly, setCriticalOnly] = useState(false);
 
   const enterFullscreen = async () => {
     const elem = document.documentElement;
     if (document.fullscreenElement) return;
 
     try {
-      if (elem.requestFullscreen) {
-        await elem.requestFullscreen();
-      }
+      await elem.requestFullscreen();
     } catch (error) {
       console.error("Impossible de passer en plein écran :", error);
     }
   };
-
-  useEffect(() => {
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, []);
 
   useEffect(() => {
     async function refreshClients() {
@@ -576,7 +728,7 @@ export default function TvPage() {
     refreshClients();
 
     const channel = supabase
-      .channel("tv-realtime-clients-premium")
+      .channel("tv-realtime-clients-monitoring")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "clients_depot" },
@@ -592,22 +744,68 @@ export default function TvPage() {
     };
   }, []);
 
-  const showTrackingBoard = useMemo(() => {
-    return now.getTime() >= new Date(TRACKING_START).getTime();
-  }, [now]);
+  const picOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        clients
+          .map((client) => client.personInCharge)
+          .filter((pic) => pic && pic.trim() !== "")
+      )
+    ).sort();
+  }, [clients]);
 
-  useEffect(() => {
-    if (!showTrackingBoard) return;
+  const filteredClients = useMemo(() => {
+    return clients.filter((client) => {
+      if (bureauFilter !== "all" && client.bureau !== bureauFilter) return false;
+      if (losFilter !== "all" && client.los !== losFilter) return false;
+      if (picFilter !== "all" && client.personInCharge !== picFilter) return false;
 
-    const id = setInterval(() => {
-      setViewMode((prev) => (prev === "executive" ? "detailed" : "executive"));
-    }, VIEW_ROTATION_MS);
+      if (
+        paiementFilter !== "all" &&
+        client.paiementIbpApplicable &&
+        String(client.paiementIbp) !== paiementFilter
+      )
+        return false;
 
-    return () => clearInterval(id);
-  }, [showTrackingBoard]);
+      if (
+        remplissageFilter !== "all" &&
+        client.remplissageApplicable &&
+        String(client.remplissage) !== remplissageFilter
+      )
+        return false;
+
+      if (
+        attestationFilter !== "all" &&
+        client.attestationEcApplicable &&
+        String(client.attestationEc) !== attestationFilter
+      )
+        return false;
+
+      if (
+        depotFilter !== "all" &&
+        client.depotDgiApplicable &&
+        String(client.depotDgi) !== depotFilter
+      )
+        return false;
+
+      if (criticalOnly && !getClientProgress(client).isCritical) return false;
+
+      return true;
+    });
+  }, [
+    clients,
+    bureauFilter,
+    losFilter,
+    picFilter,
+    paiementFilter,
+    remplissageFilter,
+    attestationFilter,
+    depotFilter,
+    criticalOnly,
+  ]);
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden text-white">
+    <div className="relative min-h-screen w-full overflow-x-hidden text-white">
       <div className="absolute inset-0">
         <Image
           src="/bg-bdo-tv.png"
@@ -618,12 +816,11 @@ export default function TvPage() {
         />
       </div>
 
-      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(15,23,42,0.18),rgba(15,23,42,0.48))]" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(15,23,42,0.25),rgba(15,23,42,0.62))]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_26%),radial-gradient(circle_at_center,rgba(59,130,246,0.10),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(220,38,38,0.10),transparent_26%)]" />
-      <div className="absolute inset-0 animate-pulse opacity-10 bg-[radial-gradient(circle_at_30%_30%,white,transparent_40%)]" />
 
       <div className="relative z-10 min-h-screen p-5 xl:p-8 2xl:p-10">
-        <div className="mb-6 flex items-center justify-between gap-6 xl:mb-8">
+        <div className="mb-5 flex items-center justify-between gap-6">
           <div className="flex min-w-0 items-center gap-4">
             <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-white/20 bg-white/95 shadow-xl xl:h-20 xl:w-20">
               <Image
@@ -641,14 +838,12 @@ export default function TvPage() {
                 BDO RDC — Suivi Dépôt États Financiers
               </div>
               <div className="text-sm text-slate-50/95 xl:text-lg">
-                Tableau exécutif de pilotage en temps réel
+                Suivi temps réel : IBP • Remplissage • Attestation EC • Dépôt DGI
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            {showTrackingBoard && <ViewPill mode={viewMode} />}
-
             <button
               onClick={enterFullscreen}
               className="rounded-2xl border border-white/20 bg-slate-900/55 px-4 py-3 text-white backdrop-blur-md transition hover:bg-slate-900/70"
@@ -670,120 +865,36 @@ export default function TvPage() {
           </div>
         </div>
 
-        <AnimatePresence mode="wait">
-          {!showTrackingBoard ? (
-            <motion.div
-              key="countdown-only"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="flex min-h-[78vh] items-center justify-center"
-            >
-              <div className="w-full max-w-7xl">
-                <Card className="rounded-[2rem] border-white/20 bg-slate-900/55 shadow-2xl backdrop-blur-xl">
-                  <CardContent className="p-8 xl:p-12 2xl:p-16">
-                    <CountdownBoard />
-                    <div className="mt-8 max-w-5xl text-lg leading-relaxed text-slate-50/95 xl:mt-10 xl:text-2xl">
-                      Ce tableau de bord basculera automatiquement en mode suivi opérationnel
-                      détaillé à partir du
-                      <span className="font-semibold text-white"> 30 avril 2026 à 00:01</span>,
-                      tout en conservant le compte à rebours jusqu’à l’échéance finale du
-                      <span className="font-semibold text-white"> 30 avril 2026 à 23:59</span>.
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key={viewMode}
-              initial={{ opacity: 0, y: 18 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -18 }}
-              className="space-y-6"
-            >
-              {viewMode === "executive" ? (
-                <>
-                  <div className="grid items-start gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-                    <Card className="rounded-[2rem] border-white/20 bg-slate-900/55 backdrop-blur-xl">
-                      <CardContent className="p-6 xl:p-8">
-                        <CountdownBoard />
-                      </CardContent>
-                    </Card>
+        <div className="mb-5 grid gap-4 xl:grid-cols-[1fr_0.42fr]">
+          <ExecutiveSummary clients={filteredClients} />
+          <CountdownMini />
+        </div>
 
-                    <RotatingSpotlight clients={clients} />
-                  </div>
+        <div className="mb-5">
+          <FiltersPanel
+            bureauFilter={bureauFilter}
+            setBureauFilter={setBureauFilter}
+            losFilter={losFilter}
+            setLosFilter={setLosFilter}
+            picFilter={picFilter}
+            setPicFilter={setPicFilter}
+            paiementFilter={paiementFilter}
+            setPaiementFilter={setPaiementFilter}
+            remplissageFilter={remplissageFilter}
+            setRemplissageFilter={setRemplissageFilter}
+            attestationFilter={attestationFilter}
+            setAttestationFilter={setAttestationFilter}
+            depotFilter={depotFilter}
+            setDepotFilter={setDepotFilter}
+            criticalOnly={criticalOnly}
+            setCriticalOnly={setCriticalOnly}
+            picOptions={picOptions}
+            filteredCount={filteredClients.length}
+            totalCount={clients.length}
+          />
+        </div>
 
-                  <ExecutiveSummary clients={clients} />
-
-                  <PriorityStrip clients={clients} />
-
-                  <Card className="rounded-[2rem] border-white/20 bg-slate-900/55">
-                    <CardContent className="space-y-3 p-6 xl:p-7">
-                      <div className="text-lg font-bold text-white xl:text-2xl">
-                        Référentiel de lecture opérationnelle
-                      </div>
-                      <div className="grid gap-3 text-sm text-slate-50/95 xl:grid-cols-4 xl:text-base">
-                        <div className="flex items-center gap-3">
-                          <span className="h-4 w-4 rounded-full bg-red-400" />
-                          Dossier non encore déposé
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="h-4 w-4 rounded-full bg-amber-300" />
-                          Dossier en cours de finalisation
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="h-4 w-4 rounded-full bg-emerald-300" />
-                          Dossier déjà traité
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <TrendingUp className="h-4 w-4 text-sky-200" />
-                          Pilotage en temps réel multi-écrans
-                        </div>
-                      </div>
-                      <Separator className="bg-white/15" />
-                      <div className="text-sm leading-7 text-slate-50/90 xl:text-base">
-                        Affichage conçu pour télévision grand format, avec hiérarchie visuelle
-                        exécutive, mise en avant des urgences et lecture instantanée de
-                        l’avancement global.
-                      </div>
-                    </CardContent>
-                  </Card>
-                </>
-              ) : (
-                <>
-                  <div className="grid gap-6 xl:grid-cols-3">
-                    <StatusColumn
-                      title="Non déposés"
-                      icon={<AlertTriangle className="h-6 w-6 text-red-200" />}
-                      clients={clients}
-                      status="not_submitted"
-                    />
-                    <StatusColumn
-                      title="En attente"
-                      icon={<TimerReset className="h-6 w-6 text-amber-100" />}
-                      clients={clients}
-                      status="pending"
-                    />
-                    <StatusColumn
-                      title="Déjà déposés"
-                      icon={<CheckCircle2 className="h-6 w-6 text-emerald-200" />}
-                      clients={clients}
-                      status="submitted"
-                    />
-                  </div>
-
-                  <Card className="rounded-[2rem] border-white/20 bg-slate-900/55 backdrop-blur-md">
-                    <CardContent className="p-6 text-slate-50/95 xl:p-7 xl:text-lg">
-                      Vue détaillée active : cette séquence met en avant la répartition complète
-                      des dossiers par état, pour une lecture opérationnelle immédiate en salle.
-                    </CardContent>
-                  </Card>
-                </>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <MonitoringTable clients={filteredClients} />
       </div>
     </div>
   );
