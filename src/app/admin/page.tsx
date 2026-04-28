@@ -12,12 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Plus,
-  Trash2,
-  Building2,
-  RefreshCw,
-} from "lucide-react";
+import { Plus, Trash2, Building2, RefreshCw, Search } from "lucide-react";
 import {
   addClient as addClientDb,
   deleteClient as deleteClientDb,
@@ -45,10 +40,35 @@ type UiClient = {
   depotDgiApplicable: boolean;
 };
 
+const inputClass =
+  "border-white/10 bg-slate-900 text-white placeholder:text-slate-400";
+
+const selectTriggerClass = "border-white/10 bg-slate-900 text-white";
+
+const selectContentClass = "border-white/10 bg-slate-900 text-white";
+
+const emptyClient: UiClient = {
+  id: 0,
+  nomClient: "",
+  bureau: "Kinshasa",
+  los: "Audit",
+  personInCharge: "",
+
+  paiementIbp: false,
+  remplissage: false,
+  attestationEc: false,
+  depotDgi: false,
+
+  paiementIbpApplicable: true,
+  remplissageApplicable: true,
+  attestationEcApplicable: true,
+  depotDgiApplicable: true,
+};
+
 function mapDbClientToUi(client: any): UiClient {
   return {
     id: client.id,
-    nomClient: client.nom_client,
+    nomClient: client.nom_client ?? "",
     bureau: client.bureau ?? "Kinshasa",
     los: client.los ?? "Audit",
     personInCharge: client.person_in_charge ?? "",
@@ -83,7 +103,7 @@ function BooleanSelect({
       <SelectTrigger
         className={
           disabled
-            ? "border-slate-500/30 bg-slate-500/10 text-slate-300"
+            ? "border-slate-500/30 bg-slate-800 text-slate-400"
             : value
             ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
             : "border-red-400/30 bg-red-500/10 text-red-100"
@@ -91,7 +111,7 @@ function BooleanSelect({
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className={selectContentClass}>
         <SelectItem value="true">Oui</SelectItem>
         <SelectItem value="false">Non</SelectItem>
       </SelectContent>
@@ -107,17 +127,20 @@ function ApplicabilitySelect({
   onChange: (value: boolean) => void;
 }) {
   return (
-    <Select value={value ? "true" : "false"} onValueChange={(v) => onChange(v === "true")}>
+    <Select
+      value={value ? "true" : "false"}
+      onValueChange={(v) => onChange(v === "true")}
+    >
       <SelectTrigger
         className={
           value
             ? "border-sky-400/30 bg-sky-500/10 text-sky-100"
-            : "border-slate-400/30 bg-slate-500/10 text-slate-200"
+            : "border-slate-400/30 bg-slate-700 text-slate-200"
         }
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className={selectContentClass}>
         <SelectItem value="true">Applicable</SelectItem>
         <SelectItem value="false">N/A</SelectItem>
       </SelectContent>
@@ -166,28 +189,11 @@ function KpiCard({
   );
 }
 
-const emptyClient: UiClient = {
-  id: 0,
-  nomClient: "",
-  bureau: "Kinshasa",
-  los: "Audit",
-  personInCharge: "",
-
-  paiementIbp: false,
-  remplissage: false,
-  attestationEc: false,
-  depotDgi: false,
-
-  paiementIbpApplicable: true,
-  remplissageApplicable: true,
-  attestationEcApplicable: true,
-  depotDgiApplicable: true,
-};
-
 export default function AdminPage() {
   const [clients, setClients] = useState<UiClient[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
   const [newClient, setNewClient] = useState<UiClient>(emptyClient);
 
   const refreshClients = async () => {
@@ -224,6 +230,21 @@ export default function AdminPage() {
     };
   }, []);
 
+  const filteredClients = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    if (!q) return clients;
+
+    return clients.filter((client) => {
+      return (
+        client.nomClient.toLowerCase().includes(q) ||
+        client.bureau.toLowerCase().includes(q) ||
+        client.los.toLowerCase().includes(q) ||
+        client.personInCharge.toLowerCase().includes(q)
+      );
+    });
+  }, [clients, search]);
+
   const stats = useMemo(() => {
     const total = clients.length;
 
@@ -247,7 +268,8 @@ export default function AdminPage() {
       );
     }, 0);
 
-    const progress = totalChecks === 0 ? 100 : Math.round((completedChecks / totalChecks) * 100);
+    const progress =
+      totalChecks === 0 ? 100 : Math.round((completedChecks / totalChecks) * 100);
 
     const completedClients = clients.filter((client) => {
       const p = getProgress(client);
@@ -351,7 +373,7 @@ export default function AdminPage() {
       <div className="mx-auto max-w-[1800px] space-y-6">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div>
-            <h1 className="text-3xl font-black">
+            <h1 className="text-3xl font-black text-white">
               Administration — Suivi dépôt états financiers
             </h1>
             <p className="mt-2 text-slate-400">
@@ -372,15 +394,31 @@ export default function AdminPage() {
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <KpiCard title="Clients" value={stats.total} subtitle="Dossiers suivis" />
-          <KpiCard title="Clients terminés" value={stats.completedClients} subtitle="100% des critères" />
-          <KpiCard title="Critères applicables" value={stats.totalChecks} subtitle="Total à suivre" />
-          <KpiCard title="Critères validés" value={stats.completedChecks} subtitle="Oui" />
-          <KpiCard title="Avancement" value={`${stats.progress}%`} subtitle="Progression globale" />
+          <KpiCard
+            title="Clients terminés"
+            value={stats.completedClients}
+            subtitle="100% des critères"
+          />
+          <KpiCard
+            title="Critères applicables"
+            value={stats.totalChecks}
+            subtitle="Total à suivre"
+          />
+          <KpiCard
+            title="Critères validés"
+            value={stats.completedChecks}
+            subtitle="Oui"
+          />
+          <KpiCard
+            title="Avancement"
+            value={`${stats.progress}%`}
+            subtitle="Progression globale"
+          />
         </div>
 
         <Card className="border-white/10 bg-white/5">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-white">
               <Building2 className="h-5 w-5" />
               Ajouter un client
             </CardTitle>
@@ -394,7 +432,7 @@ export default function AdminPage() {
                 onChange={(e) =>
                   setNewClient((p) => ({ ...p, nomClient: e.target.value }))
                 }
-                className="border-white/10 bg-white/5"
+                className={inputClass}
               />
 
               <Select
@@ -403,10 +441,10 @@ export default function AdminPage() {
                   setNewClient((p) => ({ ...p, bureau: v }))
                 }
               >
-                <SelectTrigger className="border-white/10 bg-white/5">
+                <SelectTrigger className={selectTriggerClass}>
                   <SelectValue placeholder="Bureau" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={selectContentClass}>
                   <SelectItem value="Kinshasa">Kinshasa</SelectItem>
                   <SelectItem value="Lubumbashi">Lubumbashi</SelectItem>
                 </SelectContent>
@@ -418,10 +456,10 @@ export default function AdminPage() {
                   setNewClient((p) => ({ ...p, los: v }))
                 }
               >
-                <SelectTrigger className="border-white/10 bg-white/5">
+                <SelectTrigger className={selectTriggerClass}>
                   <SelectValue placeholder="LOS" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={selectContentClass}>
                   <SelectItem value="Audit">Audit</SelectItem>
                   <SelectItem value="BSO">BSO</SelectItem>
                   <SelectItem value="TAX">TAX</SelectItem>
@@ -434,13 +472,13 @@ export default function AdminPage() {
                 onChange={(e) =>
                   setNewClient((p) => ({ ...p, personInCharge: e.target.value }))
                 }
-                className="border-white/10 bg-white/5"
+                className={inputClass}
               />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-3 font-semibold">Paiement IBP</div>
+                <div className="mb-3 font-semibold text-white">Paiement IBP</div>
                 <div className="space-y-3">
                   <ApplicabilitySelect
                     value={newClient.paiementIbpApplicable}
@@ -451,13 +489,15 @@ export default function AdminPage() {
                   <BooleanSelect
                     value={newClient.paiementIbp}
                     disabled={!newClient.paiementIbpApplicable}
-                    onChange={(v) => setNewClient((p) => ({ ...p, paiementIbp: v }))}
+                    onChange={(v) =>
+                      setNewClient((p) => ({ ...p, paiementIbp: v }))
+                    }
                   />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-3 font-semibold">Remplissage</div>
+                <div className="mb-3 font-semibold text-white">Remplissage</div>
                 <div className="space-y-3">
                   <ApplicabilitySelect
                     value={newClient.remplissageApplicable}
@@ -468,13 +508,15 @@ export default function AdminPage() {
                   <BooleanSelect
                     value={newClient.remplissage}
                     disabled={!newClient.remplissageApplicable}
-                    onChange={(v) => setNewClient((p) => ({ ...p, remplissage: v }))}
+                    onChange={(v) =>
+                      setNewClient((p) => ({ ...p, remplissage: v }))
+                    }
                   />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-3 font-semibold">Attestation EC</div>
+                <div className="mb-3 font-semibold text-white">Attestation EC</div>
                 <div className="space-y-3">
                   <ApplicabilitySelect
                     value={newClient.attestationEcApplicable}
@@ -485,13 +527,15 @@ export default function AdminPage() {
                   <BooleanSelect
                     value={newClient.attestationEc}
                     disabled={!newClient.attestationEcApplicable}
-                    onChange={(v) => setNewClient((p) => ({ ...p, attestationEc: v }))}
+                    onChange={(v) =>
+                      setNewClient((p) => ({ ...p, attestationEc: v }))
+                    }
                   />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-3 font-semibold">Dépôt DGI</div>
+                <div className="mb-3 font-semibold text-white">Dépôt DGI</div>
                 <div className="space-y-3">
                   <ApplicabilitySelect
                     value={newClient.depotDgiApplicable}
@@ -502,7 +546,9 @@ export default function AdminPage() {
                   <BooleanSelect
                     value={newClient.depotDgi}
                     disabled={!newClient.depotDgiApplicable}
-                    onChange={(v) => setNewClient((p) => ({ ...p, depotDgi: v }))}
+                    onChange={(v) =>
+                      setNewClient((p) => ({ ...p, depotDgi: v }))
+                    }
                   />
                 </div>
               </div>
@@ -516,13 +562,27 @@ export default function AdminPage() {
         </Card>
 
         <Card className="border-white/10 bg-white/5">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <Search className="h-5 w-5 text-slate-300" />
+              <Input
+                placeholder="Rechercher par client, bureau, LOS ou person in charge..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-white/10 bg-white/5">
           <CardHeader>
-            <CardTitle>Liste des clients</CardTitle>
+            <CardTitle className="text-white">Liste des clients</CardTitle>
           </CardHeader>
 
           <CardContent>
             <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full min-w-[1900px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1900px] border-collapse text-left text-sm text-white">
                 <thead className="bg-slate-900 text-slate-200">
                   <tr>
                     <th className="px-4 py-4">Nom du client</th>
@@ -543,25 +603,33 @@ export default function AdminPage() {
                 </thead>
 
                 <tbody>
-                  {clients.length === 0 ? (
+                  {filteredClients.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-4 py-8 text-center text-slate-400">
-                        Aucun client enregistré pour le moment.
+                      <td
+                        colSpan={14}
+                        className="px-4 py-8 text-center text-slate-400"
+                      >
+                        Aucun client ne correspond à votre recherche.
                       </td>
                     </tr>
                   ) : (
-                    clients.map((client) => {
+                    filteredClients.map((client) => {
                       const progress = getProgress(client);
 
                       return (
-                        <tr key={client.id} className="border-t border-white/10 bg-slate-950/30">
+                        <tr
+                          key={client.id}
+                          className="border-t border-white/10 bg-slate-950/30 text-white"
+                        >
                           <td className="px-4 py-4">
                             <Input
                               value={client.nomClient}
                               onChange={(e) =>
-                                updateClientLocal(client.id, { nomClient: e.target.value })
+                                updateClientLocal(client.id, {
+                                  nomClient: e.target.value,
+                                })
                               }
-                              className="min-w-[220px] border-white/10 bg-white/5"
+                              className={`min-w-[220px] ${inputClass}`}
                             />
                           </td>
 
@@ -572,10 +640,10 @@ export default function AdminPage() {
                                 updateClientLocal(client.id, { bureau: v })
                               }
                             >
-                              <SelectTrigger className="w-[150px] border-white/10 bg-white/5">
+                              <SelectTrigger className={`w-[150px] ${selectTriggerClass}`}>
                                 <SelectValue />
                               </SelectTrigger>
-                              <SelectContent>
+                              <SelectContent className={selectContentClass}>
                                 <SelectItem value="Kinshasa">Kinshasa</SelectItem>
                                 <SelectItem value="Lubumbashi">Lubumbashi</SelectItem>
                               </SelectContent>
@@ -589,10 +657,10 @@ export default function AdminPage() {
                                 updateClientLocal(client.id, { los: v })
                               }
                             >
-                              <SelectTrigger className="w-[120px] border-white/10 bg-white/5">
+                              <SelectTrigger className={`w-[120px] ${selectTriggerClass}`}>
                                 <SelectValue />
                               </SelectTrigger>
-                              <SelectContent>
+                              <SelectContent className={selectContentClass}>
                                 <SelectItem value="Audit">Audit</SelectItem>
                                 <SelectItem value="BSO">BSO</SelectItem>
                                 <SelectItem value="TAX">TAX</SelectItem>
@@ -608,7 +676,7 @@ export default function AdminPage() {
                                   personInCharge: e.target.value,
                                 })
                               }
-                              className="min-w-[180px] border-white/10 bg-white/5"
+                              className={`min-w-[180px] ${inputClass}`}
                             />
                           </td>
 
@@ -670,7 +738,9 @@ export default function AdminPage() {
                               value={client.attestationEc}
                               disabled={!client.attestationEcApplicable}
                               onChange={(v) =>
-                                updateClientLocal(client.id, { attestationEc: v })
+                                updateClientLocal(client.id, {
+                                  attestationEc: v,
+                                })
                               }
                             />
                           </td>
@@ -697,7 +767,8 @@ export default function AdminPage() {
                           </td>
 
                           <td className="px-4 py-4 text-slate-100">
-                            {progress.completed}/{progress.total} — {progress.percentage}%
+                            {progress.completed}/{progress.total} —{" "}
+                            {progress.percentage}%
                           </td>
 
                           <td className="px-4 py-4 text-right">
