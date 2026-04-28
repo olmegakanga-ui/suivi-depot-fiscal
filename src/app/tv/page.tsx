@@ -332,54 +332,60 @@ function CountdownMini() {
     return () => clearInterval(id);
   }, []);
 
+  const items = [
+    { label: "Jours", value: remaining.days },
+    { label: "Heures", value: remaining.hours },
+    { label: "Minutes", value: remaining.minutes },
+    { label: "Secondes", value: remaining.seconds },
+  ];
+
   return (
-    <Card className="rounded-3xl border-white/20 bg-slate-950/85 shadow-2xl backdrop-blur-xl">
-      <CardContent className="flex items-center justify-between gap-6 p-5">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-white/10 p-3">
-            <Clock3 className="h-7 w-7 text-white" />
+    <Card className="relative overflow-hidden rounded-3xl border-2 border-red-400/70 bg-red-950/90 shadow-[0_0_55px_rgba(239,68,68,0.65)] backdrop-blur-2xl">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.35),transparent_45%)]" />
+      <div className="absolute -right-16 -top-16 h-48 w-48 animate-spin rounded-full border-[18px] border-red-500/30 border-t-red-300/90 blur-[1px]" />
+      <div className="absolute -left-20 bottom-0 h-56 w-56 animate-pulse rounded-full bg-red-500/25 blur-3xl" />
+
+      <CardContent className="relative z-10 p-6">
+        <div className="mb-5 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="relative flex h-16 w-16 items-center justify-center rounded-full border-2 border-red-300 bg-red-600 shadow-[0_0_35px_rgba(239,68,68,0.95)]">
+              <div className="absolute h-20 w-20 animate-ping rounded-full bg-red-500/40" />
+              <AlertTriangle className="relative z-10 h-9 w-9 text-white drop-shadow-[0_0_12px_rgba(255,255,255,1)]" />
+            </div>
+
+            <div>
+              <div className="text-2xl font-black uppercase tracking-wide text-white drop-shadow-[0_4px_10px_rgba(0,0,0,1)]">
+                Alerte échéance fiscale
+              </div>
+              <div className="mt-1 text-base font-bold text-red-100 drop-shadow-[0_2px_8px_rgba(0,0,0,1)]">
+                Clôture le 30 avril 2026 à 23:59
+              </div>
+            </div>
           </div>
-          <div>
-            <div className="text-lg font-black text-white xl:text-xl">
-              Échéance fiscale
-            </div>
-            <div className="text-sm font-medium text-slate-200">
-              30 avril 2026 à 23:59
-            </div>
+
+          <div className="rounded-full border border-red-200/50 bg-red-500/25 px-4 py-2 text-sm font-black uppercase tracking-[0.22em] text-red-50 shadow-[0_0_24px_rgba(239,68,68,0.75)]">
+            Urgence
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-3 text-center">
-          {[
-            { label: "Jours", value: remaining.days },
-            { label: "Hrs", value: remaining.hours },
-            { label: "Min", value: remaining.minutes },
-            { label: "Sec", value: remaining.seconds, red: true },
-          ].map((item) => (
+        <div className="grid grid-cols-4 gap-4 text-center">
+          {items.map((item) => (
             <div
               key={item.label}
-              className={`rounded-2xl border p-3 shadow-lg ${
-                item.red
-                  ? "border-red-300/30 bg-red-950/70"
-                  : "border-white/20 bg-slate-900/80"
-              }`}
+              className="animate-[pulse_1.4s_ease-in-out_infinite] rounded-3xl border border-red-300/60 bg-black/55 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_10px_32px_rgba(127,29,29,0.75)]"
             >
-              <div
-                className={`text-3xl font-black drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)] ${
-                  item.red ? "text-red-300" : "text-white"
-                }`}
-              >
+              <div className="animate-[bounce_1.8s_infinite] text-5xl font-black leading-none text-red-200 drop-shadow-[0_0_16px_rgba(248,113,113,1)] xl:text-6xl">
                 {pad(item.value)}
               </div>
-              <div
-                className={`mt-1 text-[11px] font-bold uppercase tracking-[0.16em] ${
-                  item.red ? "text-red-100" : "text-white/90"
-                }`}
-              >
+              <div className="mt-3 text-[12px] font-black uppercase tracking-[0.22em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,1)]">
                 {item.label}
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-full border border-red-300/40 bg-black/40 p-1">
+          <div className="h-2 animate-pulse rounded-full bg-gradient-to-r from-red-700 via-red-300 to-white shadow-[0_0_22px_rgba(248,113,113,1)]" />
         </div>
       </CardContent>
     </Card>
