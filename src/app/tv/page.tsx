@@ -760,55 +760,47 @@ export default function TvPage() {
     ).sort();
   }, [clients]);
 
-  const filteredClients = useMemo(() => {
-    return clients.filter((client) => {
-      if (bureauFilter !== "all" && client.bureau !== bureauFilter) return false;
-      if (losFilter !== "all" && client.los !== losFilter) return false;
-      if (picFilter !== "all" && client.personInCharge !== picFilter) return false;
+const filteredClients = useMemo(() => {
+  return clients.filter((client) => {
+    if (bureauFilter !== "all" && client.bureau !== bureauFilter) return false;
+    if (losFilter !== "all" && client.los !== losFilter) return false;
+    if (picFilter !== "all" && client.personInCharge !== picFilter) return false;
 
-      if (
-        paiementFilter !== "all" &&
-        client.paiementIbpApplicable &&
-        String(client.paiementIbp) !== paiementFilter
-      )
-        return false;
+    if (paiementFilter !== "all") {
+      if (!client.paiementIbpApplicable) return false;
+      if (String(client.paiementIbp) !== paiementFilter) return false;
+    }
 
-      if (
-        remplissageFilter !== "all" &&
-        client.remplissageApplicable &&
-        String(client.remplissage) !== remplissageFilter
-      )
-        return false;
+    if (remplissageFilter !== "all") {
+      if (!client.remplissageApplicable) return false;
+      if (String(client.remplissage) !== remplissageFilter) return false;
+    }
 
-      if (
-        attestationFilter !== "all" &&
-        client.attestationEcApplicable &&
-        String(client.attestationEc) !== attestationFilter
-      )
-        return false;
+    if (attestationFilter !== "all") {
+      if (!client.attestationEcApplicable) return false;
+      if (String(client.attestationEc) !== attestationFilter) return false;
+    }
 
-      if (
-        depotFilter !== "all" &&
-        client.depotDgiApplicable &&
-        String(client.depotDgi) !== depotFilter
-      )
-        return false;
+    if (depotFilter !== "all") {
+      if (!client.depotDgiApplicable) return false;
+      if (String(client.depotDgi) !== depotFilter) return false;
+    }
 
-      if (criticalOnly && !getClientProgress(client).isCritical) return false;
+    if (criticalOnly && !getClientProgress(client).isCritical) return false;
 
-      return true;
-    });
-  }, [
-    clients,
-    bureauFilter,
-    losFilter,
-    picFilter,
-    paiementFilter,
-    remplissageFilter,
-    attestationFilter,
-    depotFilter,
-    criticalOnly,
-  ]);
+    return true;
+  });
+}, [
+  clients,
+  bureauFilter,
+  losFilter,
+  picFilter,
+  paiementFilter,
+  remplissageFilter,
+  attestationFilter,
+  depotFilter,
+  criticalOnly,
+]);
 
   return (
     <div className="relative min-h-screen w-full overflow-x-hidden text-white">
